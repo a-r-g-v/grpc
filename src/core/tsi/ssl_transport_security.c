@@ -146,6 +146,9 @@ static void init_openssl(void) {
   for (i = 0; i < CRYPTO_num_locks(); i++) {
     gpr_mu_init(&openssl_mutexes[i]);
   }
+  // for gcc7
+  (void) openssl_locking_cb;
+  (void) openssl_thread_id_cb;
   CRYPTO_set_locking_callback(openssl_locking_cb);
   CRYPTO_set_id_callback(openssl_thread_id_cb);
 }
@@ -1297,7 +1300,7 @@ tsi_result tsi_create_ssl_client_handshaker_factory(
   *factory = NULL;
   if (pem_root_certs == NULL) return TSI_INVALID_ARGUMENT;
 
-  ssl_context = SSL_CTX_new(TLSv1_2_method());
+  ssl_context = SSL_CTX_new(TLS_method());
   if (ssl_context == NULL) {
     gpr_log(GPR_ERROR, "Could not create ssl context.");
     return TSI_INVALID_ARGUMENT;
@@ -1307,6 +1310,14 @@ tsi_result tsi_create_ssl_client_handshaker_factory(
   impl->ssl_context = ssl_context;
 
   do {
+
+    result = SSL_CTX_set_min_proto_version(ssl_context, TLS1_2_VERSION);
+    if (result != TSI_OK) {
+      gpr_log(GPR_ERROR, "Could not set minimum TLS version.");
+      break;
+    }
+
+
     result =
         populate_ssl_context(ssl_context, pem_key_cert_pair, cipher_suites);
     if (result != TSI_OK) break;
@@ -1405,11 +1416,16 @@ tsi_result tsi_create_ssl_server_handshaker_factory_ex(
 
   for (i = 0; i < num_key_cert_pairs; i++) {
     do {
-      impl->ssl_contexts[i] = SSL_CTX_new(TLSv1_2_method());
+      impl->ssl_contexts[i] = SSL_CTX_new(TLS_method());
       if (impl->ssl_contexts[i] == NULL) {
         gpr_log(GPR_ERROR, "Could not create ssl context.");
         result = TSI_OUT_OF_RESOURCES;
         break;
+      }
+
+      result = SSL_CTX_set_min_proto_version(impl->ssl_contexts[i], TLS1_2_VERSION);
+      if (result != TSI_OK) {
+          gpr_log(GPR_ERROR, "Could not set minimum TLS version.");
       }
       result = populate_ssl_context(impl->ssl_contexts[i],
                                     &pem_key_cert_pairs[i], cipher_suites);
